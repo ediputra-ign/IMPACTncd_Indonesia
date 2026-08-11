@@ -27,6 +27,7 @@ tinytest
 wrswoR
 yaml
 dplyr
+magrittr
 data.table
 # required currently but to be removed in the future
 cowplot

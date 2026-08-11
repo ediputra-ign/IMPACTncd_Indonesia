@@ -21,10 +21,6 @@
 # If segfault from C stack overflow see
 # https://github.com/Rdatatable/data.table/issues/1967
 
-# something that will be fixed later #edited 20260212
-library(dplyr)
-library(magrittr)
-
 # Ensure a CRAN mirror is set
 repos <- getOption("repos")
 if (is.null(repos) || repos["CRAN"] == "@CRAN@") {
@@ -132,6 +128,9 @@ if (file.exists(pkg_list_file)) {
 } else {
   warning("r-packages.txt not found at: ", pkg_list_file)
 }
+
+library(dplyr)
+library(magrittr)
 
 # Install the local R package if its source code has changed
 # Uses a snapshot file to track changes

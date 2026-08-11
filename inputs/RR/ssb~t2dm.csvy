@@ -1,0 +1,67 @@
+---
+xps_name: ssb
+outcome: t2dm
+lag: 4
+distribution: lognormal
+source: Micha et al. (https://doi.org/10.1001/jama.2017.0947), Huang et al. (https://doi.org/10.1161/CIRCULATIONAHA.118.036751)
+notes: 
+    - Adjusted for BMI 
+    - RRs are presented per 8 oz ~ 227 ml ~ 20 grams of sugar (We use sugar)
+    - ssb_rr := ssb_rr ^ ((ssb_lagged / 20) 
+apply_rr_extra_fn: >
+  function(sp) {
+    if (!inherits(sp, 'SynthPop')) stop('Argument sp needs to be a SynthPop object.')
+    sp$pop[, ssb_rr := clamp(ssb_rr^(ssb/ 20), 1, 20)]
+  }
+#ideal_xps_lvl_fn: >
+#  function(design_) { # from: PLOS ONE 2013;8:e65174 p7
+#    if (!inherits(design_, 'Design')) stop('Argument design needs to be a Design object.')
+#    save.seed <- get('.Random.seed', .GlobalEnv)
+#    set.seed(851747L) # Same for stroke, CHD & T2DM
+#    res <- rnorm(design_$sim_prm$iteration_n_max, mean = runif(design_$sim_prm$iteration_n_max, 21, 23), sd = runif(design_$sim_prm$iteration_n_max, 1.1, 1.8))
+#    assign('.Random.seed', save.seed, .GlobalEnv)
+#    res
+#    }
+---
+agegroup,sex,rr,ci_rr
+<1,men,1,1
+01-04,men,1,1
+05-09,men,1,1
+10-14,men,1,1
+15-19,men,1,1
+20-24,men,1,1
+25-29,men,1.35,1.59
+30-34,men,1.35,1.59
+35-39,men,1.33,1.56
+40-44,men,1.33,1.56
+45-49,men,1.27,1.46
+50-54,men,1.27,1.46
+55-59,men,1.22,1.36
+60-64,men,1.22,1.36
+65-69,men,1.18,1.29
+70-74,men,1.18,1.29
+75-79,men,1.10,1.15
+80-84,men,1.10,1.15
+85-89,men,1.10,1.15
+90-94,men,1.10,1.15
+95-99,men,1.10,1.15
+<1,women,1,1
+01-04,women,1,1
+05-09,women,1,1
+10-14,women,1,1
+15-19,women,1,1
+25-29,women,1.35,1.59
+30-34,women,1.35,1.59
+35-39,women,1.33,1.56
+40-44,women,1.33,1.56
+45-49,women,1.27,1.46
+50-54,women,1.27,1.46
+55-59,women,1.22,1.36
+60-64,women,1.22,1.36
+65-69,women,1.18,1.29
+70-74,women,1.18,1.29
+75-79,women,1.10,1.15
+80-84,women,1.10,1.15
+85-89,women,1.10,1.15
+90-94,women,1.10,1.15
+95-99,women,1.10,1.15

@@ -9,7 +9,6 @@ library(IMPACTncdIndonesia)
 
 
 prbl <- c(0.5, 0.025, 0.975, 0.1, 0.9)
-baseline_year_for_change_outputs <- 2026L
 theme_set(new = theme_economist())
 theme_update(axis.text.x = element_text(size = 9), plot.title = element_text(hjust = 0.5))
 
@@ -23,6 +22,7 @@ design <- Design$new("./inputs/sim_design.yaml")
 sSummariesSubDirPath <- file.path(design$sim_prm$output_dir, "summaries")
 sTablesSubDirPath <- file.path(design$sim_prm$output_dir, "tables")
 output_dir <- design$sim_prm$output_dir
+baseline_year_for_change_outputs <- design$sim_prm$policy_year #Updated on 20260812
 
 tbl_smmrs <- function(
     what = c(
@@ -38,7 +38,7 @@ tbl_smmrs <- function(
     strata,
     output_dir = output_dir,
     prbl = c(0.5, 0.025, 0.975, 0.1, 0.9),
-    baseline_year = 2026L, # only used for prvl_change etc.
+    baseline_year = baseline_year_for_change_outputs, # only used for prvl_change etc. #Updated on 20260812
     comparator_scenario = "sc0",
     comparison_starting_year = baseline_year,
     two_agegrps = FALSE # if TRUE, agegrp is 30-64 and 65-99
@@ -164,6 +164,23 @@ tbl_smmrs <- function(
         }
 
         tt <- as.data.table(open_dataset(fpth)) # numerator data
+
+        if (grepl("^costs|^net_costs|^qalys$|^net_qalys$", what)) { #Updated on 20260812
+                # Discount costs/QALYs back to baseline_year: baseline_year
+                # itself is undiscounted (factor = 1), values from
+                # baseline_year + 1 onwards are discounted at
+                # design$sim_prm$discount_rate per year.
+                discount_rate <- design$sim_prm$discount_rate
+                if (is.null(discount_rate)) discount_rate <- 0
+                disc_cols <- if (grepl("^costs|^net_costs", what)) {
+                        grep("_costs?$", names(tt), value = TRUE)
+                } else {
+                        intersect(c("EQ5D5L", "HUI3"), names(tt))
+                }
+                tt[, (disc_cols) := lapply(.SD, function(v) {
+                        v / (1 + discount_rate)^pmax(year - baseline_year, 0)
+                }), .SDcols = disc_cols]
+        }
 
 		if (two_agegrps) {
                 sTablesSubDirPath <- file.path(design$sim_prm$output_dir, "tables2agegrps/")

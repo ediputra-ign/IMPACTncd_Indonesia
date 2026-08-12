@@ -92,6 +92,29 @@ mk_scenario_init2 <- function(scenario_name, diseases_, sp, design_) {
 # ll <- sim$gen_synthpop_demog(design)
 sp  <- SynthPop$new(1L, design)
 
+# # the following if I need to update shape 1 and shape 2 # 20260811
+# library(fst)
+# epi_files <- c(
+#   # ftlt - recomputed with new p = c(0.5, 0.95, 0.05)
+#   "inputs/disease_burden/chd_ftlt.fst",
+#   "inputs/disease_burden/stroke_ftlt.fst",
+#   "inputs/disease_burden/nonmodelled_ftlt.fst",
+#   # incd/prvl - recomputed with original p = c(0.5, 0.975, 0.025)
+#   "inputs/disease_burden/chd_incd.fst",
+#   "inputs/disease_burden/chd_prvl.fst",
+#   "inputs/disease_burden/stroke_incd.fst",
+#   "inputs/disease_burden/stroke_prvl.fst",
+#   "inputs/disease_burden/t2dm_incd.fst",
+#   "inputs/disease_burden/t2dm_prvl.fst"
+# )
+#
+# for (f in epi_files) {
+#   tbl <- read_fst(f, as.data.table = TRUE)
+#   tbl[, c("shape1", "shape2") := NULL]
+#   write_fst(tbl, f)
+# }
+
+
 lapply(diseases, function(x) x$harmonise_epi_tables(sp, verbose = TRUE))
 
 # tt <- read_fst("inputs/disease_burden/chd_prvl.fst", as.data.table = T)

@@ -4065,22 +4065,40 @@ Simulation <-
           }, character(1)), collapse = "")
         }
 
-        eq5d5l_expr <- paste0("
-          0.989
-          + CASE agegrp
-              WHEN '20-24' THEN -0.018 WHEN '25-29' THEN -0.018
-              WHEN '30-34' THEN -0.019 WHEN '35-39' THEN -0.019
-              WHEN '40-44' THEN -0.018 WHEN '45-49' THEN -0.018
-              WHEN '50-54' THEN -0.028 WHEN '55-59' THEN -0.028
-              WHEN '60-64' THEN -0.021 WHEN '65-69' THEN -0.021
-              WHEN '70-74' THEN -0.057 WHEN '75-79' THEN -0.057
-              WHEN '80-84' THEN -0.129 WHEN '85-89' THEN -0.129
-              WHEN '90-94' THEN -0.129 WHEN '95-99' THEN -0.129
-              ELSE 0.0
-            END
-          + CASE WHEN sex = 'women' THEN -0.011 ELSE 0.0 END",
-          make_dis_sql(sig_terms, "eq5d5l"),
-          if (!include_non_significant) make_dis_sql(nonsig_terms, "eq5d5l") else ""
+        # Original age/sex-adjusted Japanese population-norms EQ5D5L formula,
+        # kept for reference/rollback - superseded by the flat Indonesian
+        # population-average formula below.
+        # eq5d5l_expr <- paste0("
+        #   0.989
+        #   + CASE agegrp
+        #       WHEN '20-24' THEN -0.018 WHEN '25-29' THEN -0.018
+        #       WHEN '30-34' THEN -0.019 WHEN '35-39' THEN -0.019
+        #       WHEN '40-44' THEN -0.018 WHEN '45-49' THEN -0.018
+        #       WHEN '50-54' THEN -0.028 WHEN '55-59' THEN -0.028
+        #       WHEN '60-64' THEN -0.021 WHEN '65-69' THEN -0.021
+        #       WHEN '70-74' THEN -0.057 WHEN '75-79' THEN -0.057
+        #       WHEN '80-84' THEN -0.129 WHEN '85-89' THEN -0.129
+        #       WHEN '90-94' THEN -0.129 WHEN '95-99' THEN -0.129
+        #       ELSE 0.0
+        #     END
+        #   + CASE WHEN sex = 'women' THEN -0.011 ELSE 0.0 END",
+        #   make_dis_sql(sig_terms, "eq5d5l"),
+        #   if (!include_non_significant) make_dis_sql(nonsig_terms, "eq5d5l") else ""
+        # )
+
+        # EQ-5D score for the Indonesian population: flat population-average
+        # baseline (not age/sex-adjusted) plus disease and BMI-band disutilities.
+        #Updated on 20260812
+        eq5d5l_expr <- paste0(
+          "0.91",
+          if ("chd_prvl" %in% available_cols)
+            " + CASE WHEN chd_prvl = 0 THEN 0.0 ELSE -0.09 END" else "",
+          if ("stroke_prvl" %in% available_cols)
+            " + CASE WHEN stroke_prvl = 0 THEN 0.0 ELSE -0.25 END" else "",
+          if ("t2dm_prvl" %in% available_cols)
+            " + CASE WHEN t2dm_prvl = 0 THEN 0.0 ELSE -0.05 END" else "",
+          if ("BMI" %in% available_cols)
+            " + CASE WHEN BMI >= 30 THEN -0.06 WHEN BMI >= 25 THEN -0.02 ELSE 0.0 END" else ""
         )
 
         hui3_expr <- paste0("
@@ -4166,478 +4184,588 @@ Simulation <-
         } else ""
 
         # --- Inflation Factors ---
-        prod_informal_inflation_factor <- 1.025
-        direct_costs_inflation_factor <- 99.6 / 99.7
+        # Only used by the commented-out Steps 1-3 below. #Updated on 20260812
+        # prod_informal_inflation_factor <- 1.025
+        # direct_costs_inflation_factor <- 99.6 / 99.7
+
+        # Steps 1-3 below (productivity, informal care, and age/sex-weighted
+        # direct cost calculation for chd/stroke) are commented out, not
+        # deleted: none of the tables they rely on (employee counts, informal
+        # care hours, national cost totals used to allocate per-person costs)
+        # have a documented Indonesia-specific source - no `source:`/citation
+        # anywhere, unlike e.g. the RR .csvy files. Until real Indonesian data
+        # is available, cost = the flat per-case direct cost only (see
+        # Step 4's basic_costs CTE), for chd/stroke and t2dm alike.
 
         # --- Step 1: Create baseline aggregation views using SQL only ---
-        base_agg_sql <- "
-          CREATE OR REPLACE TEMP VIEW %s AS
-          SELECT agegrp, sex, ROUND(SUM(CASE WHEN %s THEN wt ELSE 0 END)) AS V1
-          FROM %s WHERE year = %d AND scenario = 'sc0' AND mc = %d GROUP BY agegrp, sex
-          "
-
-        # Create all baseline aggregation views
-        aggregation_configs <- list(
-          list("chd_prvl_2016_agg_view", "chd_dgns > 0", 2016),
-          list("chd_prvl_2019_agg_view", "chd_dgns > 0", 2019),
-          list("stroke_prvl_2016_agg_view", "stroke_dgns > 0", 2016),
-          list("stroke_prvl_2019_agg_view", "stroke_dgns > 0", 2019),
-          # list("t2dm_prvl_2016_agg_view", "t2dm_dgns > 0", 2016), #edited 20260210
-          # list("t2dm_prvl_2019_agg_view", "t2dm_dgns > 0", 2019), #edited 20260210
-          list("chd_mrtl_2016_initial_view", "all_cause_mrtl = 2", 2016),
-          list("stroke_mrtl_2016_initial_view", "all_cause_mrtl = 3", 2016)
-        )
-
-        for (config in aggregation_configs) {
-          private$execute_sql(
-            duckdb_con,
-            sprintf(
-              base_agg_sql,
-              config[[1]],
-              config[[2]],
-              input_table_name,
-              config[[3]],
-              mcaggr
-            ),
-            config[[1]]
-          )
-        }
+        # base_agg_sql <- "
+        #   CREATE OR REPLACE TEMP VIEW %s AS
+        #   SELECT agegrp, sex, ROUND(SUM(CASE WHEN %s THEN wt ELSE 0 END)) AS V1
+        #   FROM %s WHERE year = %d AND scenario = 'sc0' AND mc = %d GROUP BY agegrp, sex
+        #   "
+        #
+        # # Create all baseline aggregation views
+        # aggregation_configs <- list(
+        #   list("chd_prvl_2016_agg_view", "chd_dgns > 0", 2016),
+        #   list("chd_prvl_2019_agg_view", "chd_dgns > 0", 2019),
+        #   list("stroke_prvl_2016_agg_view", "stroke_dgns > 0", 2016),
+        #   list("stroke_prvl_2019_agg_view", "stroke_dgns > 0", 2019),
+        #   # list("t2dm_prvl_2016_agg_view", "t2dm_dgns > 0", 2016), #edited 20260210
+        #   # list("t2dm_prvl_2019_agg_view", "t2dm_dgns > 0", 2019), #edited 20260210
+        #   list("chd_mrtl_2016_initial_view", "all_cause_mrtl = 2", 2016),
+        #   list("stroke_mrtl_2016_initial_view", "all_cause_mrtl = 3", 2016)
+        # )
+        #
+        # for (config in aggregation_configs) {
+        #   private$execute_sql(
+        #     duckdb_con,
+        #     sprintf(
+        #       base_agg_sql,
+        #       config[[1]],
+        #       config[[2]],
+        #       input_table_name,
+        #       config[[3]],
+        #       mcaggr
+        #     ),
+        #     config[[1]]
+        #   )
+        # }
 
         # --- Step 2: Memory-efficient mortality data handling ---
         # Instead of loading full FST files, create minimal temp tables with only required data
         # Load only essential columns and filter immediately
 
-        # Load observed population (minimal columns)
-        obs_pop_2016 <- read_fst(
-          "inputs/pop_estimates/observed_population_indonesia_final.fst",
-          columns = c("year", "age", "sex", "pops"),
-          as.data.table = TRUE
-        )[year == 2016L]
-        obs_pop_2016 <- obs_pop_2016[, .(pops = sum(pops)), keyby = .(year, age, sex)]
-        
-        # Process CHD mortality efficiently
-        chd_ftlt_2016 <- read_fst( #ask Chris: no need for t2dm?
-          "inputs/disease_burden/chd_ftlt.fst",
-          columns = c("year", "age", "sex", "mu2"),
-          as.data.table = TRUE
-        )[year == 2016]
-
-        chd_joined <- chd_ftlt_2016[
-          obs_pop_2016,
-          on = c("age", "sex"),
-          nomatch = 0L
-        ][, `:=`(
-          deaths_calc = mu2 * pops,
-          agegrp = fcase(
-            age %between% c(30, 34),
-            "30-34",
-            age %between% c(35, 39),
-            "35-39",
-            age %between% c(40, 44),
-            "40-44",
-            age %between% c(45, 49),
-            "45-49",
-            age %between% c(50, 54),
-            "50-54",
-            age %between% c(55, 59),
-            "55-59",
-            age %between% c(60, 64),
-            "60-64",
-            age %between% c(65, 69),
-            "65-69",
-            age %between% c(70, 74),
-            "70-74",
-            age %between% c(75, 79),
-            "75-79",
-            age %between% c(80, 84),
-            "80-84",
-            age %between% c(85, 89),
-            "85-89",
-            age %between% c(90, 94),
-            "90-94",
-            age >= 95,
-            "95-99",
-            default = NA_character_
-          )
-        )][
-          !is.na(agegrp),
-          .(calculated_deaths = round(sum(deaths_calc))),
-          keyby = .(agegrp, sex)
-        ]
-
-        # Register minimal table
-        dbWriteTable(
-          duckdb_con,
-          "chd_ftlt_ext_2016_table",
-          chd_joined,
-          overwrite = TRUE
-        )
-        rm(chd_joined) # Immediate cleanup
-
-        # Process stroke mortality efficiently
-        stroke_ftlt_2016 <- read_fst(
-          "inputs/disease_burden/stroke_ftlt.fst",
-          columns = c("year", "age", "sex", "mu2"),
-          as.data.table = TRUE
-        )[year == 2016]
-
-        stroke_joined <- stroke_ftlt_2016[
-          obs_pop_2016,
-          on = c("age", "sex"),
-          nomatch = 0L
-        ][, `:=`(
-          deaths_calc = mu2 * pops,
-          agegrp = fcase(
-            age %between% c(30, 34),
-            "30-34",
-            age %between% c(35, 39),
-            "35-39",
-            age %between% c(40, 44),
-            "40-44",
-            age %between% c(45, 49),
-            "45-49",
-            age %between% c(50, 54),
-            "50-54",
-            age %between% c(55, 59),
-            "55-59",
-            age %between% c(60, 64),
-            "60-64",
-            age %between% c(65, 69),
-            "65-69",
-            age %between% c(70, 74),
-            "70-74",
-            age %between% c(75, 79),
-            "75-79",
-            age %between% c(80, 84),
-            "80-84",
-            age %between% c(85, 89),
-            "85-89",
-            age %between% c(90, 94),
-            "90-94",
-            age >= 95,
-            "95-99",
-            default = NA_character_
-          )
-        )][
-          !is.na(agegrp),
-          .(calculated_deaths = round(sum(deaths_calc))),
-          keyby = .(agegrp, sex)
-        ]
-
-        dbWriteTable(
-          duckdb_con,
-          "stroke_ftlt_ext_2016_table",
-          as.data.frame(stroke_joined),
-          overwrite = TRUE
-        )
-        rm(stroke_joined) # Immediate cleanup
-
-        # Cleanup large intermediate objects immediately
-        rm(obs_pop_2016, chd_ftlt_2016, stroke_ftlt_2016)
-
-        # Update mortality views
-        private$execute_sql(
-          duckdb_con,
-          "
-          CREATE OR REPLACE TEMP VIEW chd_mrtl_2016_agg_view AS
-          SELECT i.agegrp, i.sex,
-                 CASE WHEN i.V1 = 0 THEN COALESCE(f.calculated_deaths, i.V1) ELSE i.V1 END AS V1
-          FROM chd_mrtl_2016_initial_view i
-          LEFT JOIN chd_ftlt_ext_2016_table f ON i.agegrp = f.agegrp AND i.sex = f.sex
-        ",
-          "chd_mrtl_2016_agg_view"
-        )
-
-        private$execute_sql(
-          duckdb_con,
-          "
-          CREATE OR REPLACE TEMP VIEW stroke_mrtl_2016_agg_view AS
-          SELECT i.agegrp, i.sex,
-                 CASE WHEN i.V1 = 0 THEN COALESCE(f.calculated_deaths, i.V1) ELSE i.V1 END AS V1
-          FROM stroke_mrtl_2016_initial_view i
-          LEFT JOIN stroke_ftlt_ext_2016_table f ON i.agegrp = f.agegrp AND i.sex = f.sex
-        ",
-          "stroke_mrtl_2016_agg_view"
-        )
+#         # Load observed population (minimal columns)
+#         obs_pop_2016 <- read_fst(
+#           "inputs/pop_estimates/observed_population_indonesia_final.fst",
+#           columns = c("year", "age", "sex", "pops"),
+#           as.data.table = TRUE
+#         )[year == 2016L]
+#         obs_pop_2016 <- obs_pop_2016[, .(pops = sum(pops)), keyby = .(year, age, sex)]
+#         
+#         # Process CHD mortality efficiently
+#         chd_ftlt_2016 <- read_fst( #ask Chris: no need for t2dm?
+#           "inputs/disease_burden/chd_ftlt.fst",
+#           columns = c("year", "age", "sex", "mu2"),
+#           as.data.table = TRUE
+#         )[year == 2016]
+# 
+#         chd_joined <- chd_ftlt_2016[
+#           obs_pop_2016,
+#           on = c("age", "sex"),
+#           nomatch = 0L
+#         ][, `:=`(
+#           deaths_calc = mu2 * pops,
+#           agegrp = fcase(
+#             age %between% c(30, 34),
+#             "30-34",
+#             age %between% c(35, 39),
+#             "35-39",
+#             age %between% c(40, 44),
+#             "40-44",
+#             age %between% c(45, 49),
+#             "45-49",
+#             age %between% c(50, 54),
+#             "50-54",
+#             age %between% c(55, 59),
+#             "55-59",
+#             age %between% c(60, 64),
+#             "60-64",
+#             age %between% c(65, 69),
+#             "65-69",
+#             age %between% c(70, 74),
+#             "70-74",
+#             age %between% c(75, 79),
+#             "75-79",
+#             age %between% c(80, 84),
+#             "80-84",
+#             age %between% c(85, 89),
+#             "85-89",
+#             age %between% c(90, 94),
+#             "90-94",
+#             age >= 95,
+#             "95-99",
+#             default = NA_character_
+#           )
+#         )][
+#           !is.na(agegrp),
+#           .(calculated_deaths = round(sum(deaths_calc))),
+#           keyby = .(agegrp, sex)
+#         ]
+# 
+#         # Register minimal table
+#         dbWriteTable(
+#           duckdb_con,
+#           "chd_ftlt_ext_2016_table",
+#           chd_joined,
+#           overwrite = TRUE
+#         )
+#         rm(chd_joined) # Immediate cleanup
+# 
+#         # Process stroke mortality efficiently
+#         stroke_ftlt_2016 <- read_fst(
+#           "inputs/disease_burden/stroke_ftlt.fst",
+#           columns = c("year", "age", "sex", "mu2"),
+#           as.data.table = TRUE
+#         )[year == 2016]
+# 
+#         stroke_joined <- stroke_ftlt_2016[
+#           obs_pop_2016,
+#           on = c("age", "sex"),
+#           nomatch = 0L
+#         ][, `:=`(
+#           deaths_calc = mu2 * pops,
+#           agegrp = fcase(
+#             age %between% c(30, 34),
+#             "30-34",
+#             age %between% c(35, 39),
+#             "35-39",
+#             age %between% c(40, 44),
+#             "40-44",
+#             age %between% c(45, 49),
+#             "45-49",
+#             age %between% c(50, 54),
+#             "50-54",
+#             age %between% c(55, 59),
+#             "55-59",
+#             age %between% c(60, 64),
+#             "60-64",
+#             age %between% c(65, 69),
+#             "65-69",
+#             age %between% c(70, 74),
+#             "70-74",
+#             age %between% c(75, 79),
+#             "75-79",
+#             age %between% c(80, 84),
+#             "80-84",
+#             age %between% c(85, 89),
+#             "85-89",
+#             age %between% c(90, 94),
+#             "90-94",
+#             age >= 95,
+#             "95-99",
+#             default = NA_character_
+#           )
+#         )][
+#           !is.na(agegrp),
+#           .(calculated_deaths = round(sum(deaths_calc))),
+#           keyby = .(agegrp, sex)
+#         ]
+# 
+#         dbWriteTable(
+#           duckdb_con,
+#           "stroke_ftlt_ext_2016_table",
+#           as.data.frame(stroke_joined),
+#           overwrite = TRUE
+#         )
+#         rm(stroke_joined) # Immediate cleanup
+# 
+#         # Cleanup large intermediate objects immediately
+#         rm(obs_pop_2016, chd_ftlt_2016, stroke_ftlt_2016)
+# 
+#         # Update mortality views
+#         private$execute_sql(
+#           duckdb_con,
+#           "
+#           CREATE OR REPLACE TEMP VIEW chd_mrtl_2016_agg_view AS
+#           SELECT i.agegrp, i.sex,
+#                  CASE WHEN i.V1 = 0 THEN COALESCE(f.calculated_deaths, i.V1) ELSE i.V1 END AS V1
+#           FROM chd_mrtl_2016_initial_view i
+#           LEFT JOIN chd_ftlt_ext_2016_table f ON i.agegrp = f.agegrp AND i.sex = f.sex
+#         ",
+#           "chd_mrtl_2016_agg_view"
+#         )
+# 
+#         private$execute_sql(
+#           duckdb_con,
+#           "
+#           CREATE OR REPLACE TEMP VIEW stroke_mrtl_2016_agg_view AS
+#           SELECT i.agegrp, i.sex,
+#                  CASE WHEN i.V1 = 0 THEN COALESCE(f.calculated_deaths, i.V1) ELSE i.V1 END AS V1
+#           FROM stroke_mrtl_2016_initial_view i
+#           LEFT JOIN stroke_ftlt_ext_2016_table f ON i.agegrp = f.agegrp AND i.sex = f.sex
+#         ",
+#           "stroke_mrtl_2016_agg_view"
+#         )
 
         # --- Step 3: Memory-efficient cost parameter calculation ---
         # Create parameter tables directly in SQL to avoid R object creation
 
-        # Employee parameters - create as SQL view to avoid R data.table
-        private$execute_sql(
-          duckdb_con,
-          "
-          CREATE OR REPLACE TEMP VIEW employee_params_view AS
-          SELECT agegrp, sex, CAST(employees AS DOUBLE) AS employees FROM (VALUES
-            ('30-34', 'men', 1683780), ('35-39', 'men', 1829610), ('40-44', 'men', 2174550), ('45-49', 'men', 2057710),
-            ('50-54', 'men', 1702470), ('55-59', 'men', 1425510), ('60-64', 'men', 963430), ('65-69', 'men', 369640),
-            ('70-74', 'men', 106850), ('75-79', 'men', 0), ('80-84', 'men', 0), ('85-89', 'men', 0),
-            ('90-94', 'men', 0), ('95-99', 'men', 0),
-            ('30-34', 'women', 919700), ('35-39', 'women', 894770), ('40-44', 'women', 1049490), ('45-49', 'women', 1037140),
-            ('50-54', 'women', 854970), ('55-59', 'women', 685040), ('60-64', 'women', 376370), ('65-69', 'women', 132470),
-            ('70-74', 'women', 44050), ('75-79', 'women', 0), ('80-84', 'women', 0), ('85-89', 'women', 0),
-            ('90-94', 'women', 0), ('95-99', 'women', 0)
-          ) AS t(agegrp, sex, employees)
-        ",
-          "employee_params_view"
-        )
-
-        # CHD informal care parameters
-        private$execute_sql(
-          duckdb_con,
-          "
-          CREATE OR REPLACE TEMP VIEW chd_infm_care_view AS
-          SELECT agegrp, sex, CAST(infm_care_hrs AS DOUBLE) AS infm_care_hrs FROM (VALUES
-            ('30-34', 'men', 0.030), ('35-39', 'men', 0.030), ('40-44', 'men', 0.030), ('45-49', 'men', 0.030),
-            ('50-54', 'men', 0.030), ('55-59', 'men', 0.030), ('60-64', 'men', 0.030), ('65-69', 'men', 0.200),
-            ('70-74', 'men', 0.200), ('75-79', 'men', 0.200), ('80-84', 'men', 0), ('85-89', 'men', 0),
-            ('90-94', 'men', 0), ('95-99', 'men', 0),
-            ('30-34', 'women', 0.030), ('35-39', 'women', 0.030), ('40-44', 'women', 0.030), ('45-49', 'women', 0.030),
-            ('50-54', 'women', 0.030), ('55-59', 'women', 0.030), ('60-64', 'women', 0.030), ('65-69', 'women', 0.200),
-            ('70-74', 'women', 0.200), ('75-79', 'women', 0.200), ('80-84', 'women', 0), ('85-89', 'women', 0),
-            ('90-94', 'women', 0), ('95-99', 'women', 0)
-          ) AS t(agegrp, sex, infm_care_hrs)
-        ",
-          "chd_infm_care_view"
-        )
-
-        # Stroke informal care parameters
-        private$execute_sql(
-          duckdb_con,
-          "
-          CREATE OR REPLACE TEMP VIEW stroke_infm_care_view AS
-          SELECT agegrp, sex, CAST(infm_care_hrs AS DOUBLE) AS infm_care_hrs FROM (VALUES
-            ('30-34', 'men', 5.20), ('35-39', 'men', 5.20), ('40-44', 'men', 5.20), ('45-49', 'men', 5.20),
-            ('50-54', 'men', 5.20), ('55-59', 'men', 5.20), ('60-64', 'men', 5.20), ('65-69', 'men', 5.03),
-            ('70-74', 'men', 5.03), ('75-79', 'men', 5.03), ('80-84', 'men', 9.23), ('85-89', 'men', 9.23),
-            ('90-94', 'men', 9.23), ('95-99', 'men', 9.23),
-            ('30-34', 'women', 5.20), ('35-39', 'women', 5.20), ('40-44', 'women', 5.20), ('45-49', 'women', 5.20),
-            ('50-54', 'women', 5.20), ('55-59', 'women', 5.20), ('60-64', 'women', 5.20), ('65-69', 'women', 5.03),
-            ('70-74', 'women', 5.03), ('75-79', 'women', 5.03), ('80-84', 'women', 9.23), ('85-89', 'women', 9.23),
-            ('90-94', 'women', 9.23), ('95-99', 'women', 9.23)
-          ) AS t(agegrp, sex, infm_care_hrs)
-        ",
-          "stroke_infm_care_view"
-        )
-
-        # Direct cost parameters
-        private$execute_sql(
-          duckdb_con,
-          "
-          CREATE OR REPLACE TEMP VIEW chd_direct_tcost_view AS
-          SELECT agegrp2, sex, CAST(tcost_val AS DOUBLE) AS tcost_val FROM (VALUES
-            ('30-44', 'men', 10300000000.0), ('45-64', 'men', 121000000000.0), ('65-69', 'men', 72300000000.0),
-            ('70-74', 'men', 90100000000.0), ('75-99', 'men', 197000000000.0),
-            ('30-44', 'women', 2500000000.0), ('45-64', 'women', 22500000000.0), ('65-69', 'women', 18900000000.0),
-            ('70-74', 'women', 30300000000.0), ('75-99', 'women', 132800000000.0)
-          ) AS t(agegrp2, sex, tcost_val)
-        ",
-          "chd_direct_tcost_view"
-        )
-
-        private$execute_sql(
-          duckdb_con,
-          "
-          CREATE OR REPLACE TEMP VIEW stroke_direct_tcost_view AS
-          SELECT agegrp2, sex, CAST(tcost_val AS DOUBLE) AS tcost_val FROM (VALUES
-            ('30-44', 'men', 24900000000.0), ('45-64', 'men', 186400000000.0), ('65-69', 'men', 109000000000.0),
-            ('70-74', 'men', 144100000000.0), ('75-99', 'men', 465600000000.0),
-            ('30-44', 'women', 18000000000.0), ('45-64', 'women', 106800000000.0), ('65-69', 'women', 60900000000.0),
-            ('70-74', 'women', 95700000000.0), ('75-99', 'women', 606800000000.0)
-          ) AS t(agegrp2, sex, tcost_val)
-        ",
-          "stroke_direct_tcost_view"
-        )
-
-        # Optimised cost parameter calculation - single SQL statement approach
-        cost_param_sql <- "
-          CREATE OR REPLACE TEMP VIEW %s AS
-          WITH joined_data AS (
-            SELECT p.agegrp, p.sex, p.%s AS factor_col, agg.V1
-            FROM %s p
-            JOIN %s agg ON p.agegrp = agg.agegrp AND p.sex = agg.sex
-          ),
-          weighted_data AS (
-            SELECT agegrp, sex, (factor_col * V1) AS weighted_factor
-            FROM joined_data
-          ),
-          total_weighted_sum AS (
-            SELECT SUM(weighted_factor) AS total_wt_sum FROM weighted_data
-          )
-          SELECT wd.agegrp, wd.sex,
-                 (%.2f * wd.weighted_factor / NULLIF(tws.total_wt_sum, 0)) * %.6f / NULLIF(jd.V1, 0) AS cost_param
-          FROM weighted_data wd
-          CROSS JOIN total_weighted_sum tws
-          JOIN joined_data jd ON wd.agegrp = jd.agegrp AND wd.sex = jd.sex
-        "
-
-        # Create all cost parameter views efficiently #Ask Chris about t2dm
-        cost_configs <- list(
-          list(
-            "chd_prvl_prdv_cost_param_view",
-            "employees",
-            "employee_params_view",
-            "chd_prvl_2016_agg_view",
-            141000000000.00
-          ),
-          list(
-            "stroke_prvl_prdv_cost_param_view",
-            "employees",
-            "employee_params_view",
-            "stroke_prvl_2016_agg_view",
-            322000000000.00
-          ),
-          list(
-            "chd_mrtl_prdv_cost_param_view",
-            "employees",
-            "employee_params_view",
-            "chd_mrtl_2016_agg_view",
-            2257000000000.00
-          ),
-          list(
-            "stroke_mrtl_prdv_cost_param_view",
-            "employees",
-            "employee_params_view",
-            "stroke_mrtl_2016_agg_view",
-            1352000000000.00
-          ),
-          list(
-            "chd_informal_cost_param_view",
-            "infm_care_hrs",
-            "chd_infm_care_view",
-            "chd_prvl_2016_agg_view",
-            291000000000.00
-          ),
-          list(
-            "stroke_informal_cost_param_view",
-            "infm_care_hrs",
-            "stroke_infm_care_view",
-            "stroke_prvl_2016_agg_view",
-            1651000000000.00
-          )
-        )
-
-        for (config in cost_configs) {
-          private$execute_sql(
-            duckdb_con,
-            sprintf(
-              cost_param_sql,
-              config[[1]],
-              config[[2]],
-              config[[3]],
-              config[[4]],
-              config[[5]],
-              prod_informal_inflation_factor
-            ),
-            config[[1]]
-          )
-        }
-
-        # Direct cost parameters with optimised SQL
-        direct_cost_sql <- "
-          CREATE OR REPLACE TEMP VIEW %s AS
-          WITH lc_with_agegrp2 AS (
-            SELECT agegrp, sex, V1,
-              CASE
-                WHEN agegrp IN ('30-34', '35-39', '40-44') THEN '30-44'
-                WHEN agegrp IN ('45-49', '50-54', '55-59', '60-64') THEN '45-64'
-                WHEN agegrp = '65-69' THEN '65-69'
-                WHEN agegrp = '70-74' THEN '70-74'
-                ELSE '75-99'
-              END AS agegrp2
-            FROM %s
-          ),
-          agg_by_agegrp2 AS (
-            SELECT agegrp2, sex, SUM(V1) AS V1_sum
-            FROM lc_with_agegrp2
-            GROUP BY agegrp2, sex
-          )
-          SELECT orig.agegrp, orig.sex,
-                 (tc.tcost_val * %.6f / NULLIF(agg.V1_sum, 0)) AS cost_param
-          FROM %s orig
-          JOIN lc_with_agegrp2 lwa ON orig.agegrp = lwa.agegrp AND orig.sex = lwa.sex
-          JOIN agg_by_agegrp2 agg ON lwa.agegrp2 = agg.agegrp2 AND lwa.sex = agg.sex
-          JOIN %s tc ON agg.agegrp2 = tc.agegrp2 AND agg.sex = tc.sex
-        "
-
-        private$execute_sql( #ask Chris: about t2dm?
-          duckdb_con,
-          sprintf(
-            direct_cost_sql,
-            "chd_direct_cost_param_view",
-            "chd_prvl_2019_agg_view",
-            direct_costs_inflation_factor,
-            "chd_prvl_2019_agg_view",
-            "chd_direct_tcost_view"
-          ),
-          "chd_direct_cost_param_view"
-        )
-
-        private$execute_sql(
-          duckdb_con,
-          sprintf(
-            direct_cost_sql,
-            "stroke_direct_cost_param_view",
-            "stroke_prvl_2019_agg_view",
-            direct_costs_inflation_factor,
-            "stroke_prvl_2019_agg_view",
-            "stroke_direct_tcost_view"
-          ),
-          "stroke_direct_cost_param_view"
-        )
+#         # Employee parameters - create as SQL view to avoid R data.table
+#         private$execute_sql(
+#           duckdb_con,
+#           "
+#           CREATE OR REPLACE TEMP VIEW employee_params_view AS
+#           SELECT agegrp, sex, CAST(employees AS DOUBLE) AS employees FROM (VALUES
+#             ('30-34', 'men', 1683780), ('35-39', 'men', 1829610), ('40-44', 'men', 2174550), ('45-49', 'men', 2057710),
+#             ('50-54', 'men', 1702470), ('55-59', 'men', 1425510), ('60-64', 'men', 963430), ('65-69', 'men', 369640),
+#             ('70-74', 'men', 106850), ('75-79', 'men', 0), ('80-84', 'men', 0), ('85-89', 'men', 0),
+#             ('90-94', 'men', 0), ('95-99', 'men', 0),
+#             ('30-34', 'women', 919700), ('35-39', 'women', 894770), ('40-44', 'women', 1049490), ('45-49', 'women', 1037140),
+#             ('50-54', 'women', 854970), ('55-59', 'women', 685040), ('60-64', 'women', 376370), ('65-69', 'women', 132470),
+#             ('70-74', 'women', 44050), ('75-79', 'women', 0), ('80-84', 'women', 0), ('85-89', 'women', 0),
+#             ('90-94', 'women', 0), ('95-99', 'women', 0)
+#           ) AS t(agegrp, sex, employees)
+#         ",
+#           "employee_params_view"
+#         )
+# 
+#         # CHD informal care parameters
+#         private$execute_sql(
+#           duckdb_con,
+#           "
+#           CREATE OR REPLACE TEMP VIEW chd_infm_care_view AS
+#           SELECT agegrp, sex, CAST(infm_care_hrs AS DOUBLE) AS infm_care_hrs FROM (VALUES
+#             ('30-34', 'men', 0.030), ('35-39', 'men', 0.030), ('40-44', 'men', 0.030), ('45-49', 'men', 0.030),
+#             ('50-54', 'men', 0.030), ('55-59', 'men', 0.030), ('60-64', 'men', 0.030), ('65-69', 'men', 0.200),
+#             ('70-74', 'men', 0.200), ('75-79', 'men', 0.200), ('80-84', 'men', 0), ('85-89', 'men', 0),
+#             ('90-94', 'men', 0), ('95-99', 'men', 0),
+#             ('30-34', 'women', 0.030), ('35-39', 'women', 0.030), ('40-44', 'women', 0.030), ('45-49', 'women', 0.030),
+#             ('50-54', 'women', 0.030), ('55-59', 'women', 0.030), ('60-64', 'women', 0.030), ('65-69', 'women', 0.200),
+#             ('70-74', 'women', 0.200), ('75-79', 'women', 0.200), ('80-84', 'women', 0), ('85-89', 'women', 0),
+#             ('90-94', 'women', 0), ('95-99', 'women', 0)
+#           ) AS t(agegrp, sex, infm_care_hrs)
+#         ",
+#           "chd_infm_care_view"
+#         )
+# 
+#         # Stroke informal care parameters
+#         private$execute_sql(
+#           duckdb_con,
+#           "
+#           CREATE OR REPLACE TEMP VIEW stroke_infm_care_view AS
+#           SELECT agegrp, sex, CAST(infm_care_hrs AS DOUBLE) AS infm_care_hrs FROM (VALUES
+#             ('30-34', 'men', 5.20), ('35-39', 'men', 5.20), ('40-44', 'men', 5.20), ('45-49', 'men', 5.20),
+#             ('50-54', 'men', 5.20), ('55-59', 'men', 5.20), ('60-64', 'men', 5.20), ('65-69', 'men', 5.03),
+#             ('70-74', 'men', 5.03), ('75-79', 'men', 5.03), ('80-84', 'men', 9.23), ('85-89', 'men', 9.23),
+#             ('90-94', 'men', 9.23), ('95-99', 'men', 9.23),
+#             ('30-34', 'women', 5.20), ('35-39', 'women', 5.20), ('40-44', 'women', 5.20), ('45-49', 'women', 5.20),
+#             ('50-54', 'women', 5.20), ('55-59', 'women', 5.20), ('60-64', 'women', 5.20), ('65-69', 'women', 5.03),
+#             ('70-74', 'women', 5.03), ('75-79', 'women', 5.03), ('80-84', 'women', 9.23), ('85-89', 'women', 9.23),
+#             ('90-94', 'women', 9.23), ('95-99', 'women', 9.23)
+#           ) AS t(agegrp, sex, infm_care_hrs)
+#         ",
+#           "stroke_infm_care_view"
+#         )
+# 
+#         # Direct cost parameters
+#         private$execute_sql(
+#           duckdb_con,
+#           "
+#           CREATE OR REPLACE TEMP VIEW chd_direct_tcost_view AS
+#           SELECT agegrp2, sex, CAST(tcost_val AS DOUBLE) AS tcost_val FROM (VALUES
+#             ('30-44', 'men', 10300000000.0), ('45-64', 'men', 121000000000.0), ('65-69', 'men', 72300000000.0),
+#             ('70-74', 'men', 90100000000.0), ('75-99', 'men', 197000000000.0),
+#             ('30-44', 'women', 2500000000.0), ('45-64', 'women', 22500000000.0), ('65-69', 'women', 18900000000.0),
+#             ('70-74', 'women', 30300000000.0), ('75-99', 'women', 132800000000.0)
+#           ) AS t(agegrp2, sex, tcost_val)
+#         ",
+#           "chd_direct_tcost_view"
+#         )
+# 
+#         private$execute_sql(
+#           duckdb_con,
+#           "
+#           CREATE OR REPLACE TEMP VIEW stroke_direct_tcost_view AS
+#           SELECT agegrp2, sex, CAST(tcost_val AS DOUBLE) AS tcost_val FROM (VALUES
+#             ('30-44', 'men', 24900000000.0), ('45-64', 'men', 186400000000.0), ('65-69', 'men', 109000000000.0),
+#             ('70-74', 'men', 144100000000.0), ('75-99', 'men', 465600000000.0),
+#             ('30-44', 'women', 18000000000.0), ('45-64', 'women', 106800000000.0), ('65-69', 'women', 60900000000.0),
+#             ('70-74', 'women', 95700000000.0), ('75-99', 'women', 606800000000.0)
+#           ) AS t(agegrp2, sex, tcost_val)
+#         ",
+#           "stroke_direct_tcost_view"
+#         )
+# 
+#         # Optimised cost parameter calculation - single SQL statement approach
+#         cost_param_sql <- "
+#           CREATE OR REPLACE TEMP VIEW %s AS
+#           WITH joined_data AS (
+#             SELECT p.agegrp, p.sex, p.%s AS factor_col, agg.V1
+#             FROM %s p
+#             JOIN %s agg ON p.agegrp = agg.agegrp AND p.sex = agg.sex
+#           ),
+#           weighted_data AS (
+#             SELECT agegrp, sex, (factor_col * V1) AS weighted_factor
+#             FROM joined_data
+#           ),
+#           total_weighted_sum AS (
+#             SELECT SUM(weighted_factor) AS total_wt_sum FROM weighted_data
+#           )
+#           SELECT wd.agegrp, wd.sex,
+#                  (%.2f * wd.weighted_factor / NULLIF(tws.total_wt_sum, 0)) * %.6f / NULLIF(jd.V1, 0) AS cost_param
+#           FROM weighted_data wd
+#           CROSS JOIN total_weighted_sum tws
+#           JOIN joined_data jd ON wd.agegrp = jd.agegrp AND wd.sex = jd.sex
+#         "
+# 
+#         # Create all cost parameter views efficiently #Ask Chris about t2dm
+#         cost_configs <- list(
+#           list(
+#             "chd_prvl_prdv_cost_param_view",
+#             "employees",
+#             "employee_params_view",
+#             "chd_prvl_2016_agg_view",
+#             141000000000.00
+#           ),
+#           list(
+#             "stroke_prvl_prdv_cost_param_view",
+#             "employees",
+#             "employee_params_view",
+#             "stroke_prvl_2016_agg_view",
+#             322000000000.00
+#           ),
+#           list(
+#             "chd_mrtl_prdv_cost_param_view",
+#             "employees",
+#             "employee_params_view",
+#             "chd_mrtl_2016_agg_view",
+#             2257000000000.00
+#           ),
+#           list(
+#             "stroke_mrtl_prdv_cost_param_view",
+#             "employees",
+#             "employee_params_view",
+#             "stroke_mrtl_2016_agg_view",
+#             1352000000000.00
+#           ),
+#           list(
+#             "chd_informal_cost_param_view",
+#             "infm_care_hrs",
+#             "chd_infm_care_view",
+#             "chd_prvl_2016_agg_view",
+#             291000000000.00
+#           ),
+#           list(
+#             "stroke_informal_cost_param_view",
+#             "infm_care_hrs",
+#             "stroke_infm_care_view",
+#             "stroke_prvl_2016_agg_view",
+#             1651000000000.00
+#           )
+#         )
+# 
+#         for (config in cost_configs) {
+#           private$execute_sql(
+#             duckdb_con,
+#             sprintf(
+#               cost_param_sql,
+#               config[[1]],
+#               config[[2]],
+#               config[[3]],
+#               config[[4]],
+#               config[[5]],
+#               prod_informal_inflation_factor
+#             ),
+#             config[[1]]
+#           )
+#         }
+# 
+#         # Direct cost parameters with optimised SQL
+#         direct_cost_sql <- "
+#           CREATE OR REPLACE TEMP VIEW %s AS
+#           WITH lc_with_agegrp2 AS (
+#             SELECT agegrp, sex, V1,
+#               CASE
+#                 WHEN agegrp IN ('30-34', '35-39', '40-44') THEN '30-44'
+#                 WHEN agegrp IN ('45-49', '50-54', '55-59', '60-64') THEN '45-64'
+#                 WHEN agegrp = '65-69' THEN '65-69'
+#                 WHEN agegrp = '70-74' THEN '70-74'
+#                 ELSE '75-99'
+#               END AS agegrp2
+#             FROM %s
+#           ),
+#           agg_by_agegrp2 AS (
+#             SELECT agegrp2, sex, SUM(V1) AS V1_sum
+#             FROM lc_with_agegrp2
+#             GROUP BY agegrp2, sex
+#           )
+#           SELECT orig.agegrp, orig.sex,
+#                  (tc.tcost_val * %.6f / NULLIF(agg.V1_sum, 0)) AS cost_param
+#           FROM %s orig
+#           JOIN lc_with_agegrp2 lwa ON orig.agegrp = lwa.agegrp AND orig.sex = lwa.sex
+#           JOIN agg_by_agegrp2 agg ON lwa.agegrp2 = agg.agegrp2 AND lwa.sex = agg.sex
+#           JOIN %s tc ON agg.agegrp2 = tc.agegrp2 AND agg.sex = tc.sex
+#         "
+# 
+#         private$execute_sql( #ask Chris: about t2dm?
+#           duckdb_con,
+#           sprintf(
+#             direct_cost_sql,
+#             "chd_direct_cost_param_view",
+#             "chd_prvl_2019_agg_view",
+#             direct_costs_inflation_factor,
+#             "chd_prvl_2019_agg_view",
+#             "chd_direct_tcost_view"
+#           ),
+#           "chd_direct_cost_param_view"
+#         )
+# 
+#         private$execute_sql(
+#           duckdb_con,
+#           sprintf(
+#             direct_cost_sql,
+#             "stroke_direct_cost_param_view",
+#             "stroke_prvl_2019_agg_view",
+#             direct_costs_inflation_factor,
+#             "stroke_prvl_2019_agg_view",
+#             "stroke_direct_tcost_view"
+#           ),
+#           "stroke_direct_cost_param_view"
+#         )
 
         # --- Step 4: Create Final Output View with All Cost Columns ---
         # One view per scenario named paste0(output_view_name, "_", scnams, "_view")
+#         final_view_creation_sql <- sprintf(
+#           "
+#           CREATE OR REPLACE TEMP VIEW %s AS
+#           WITH base_filtered AS (
+#             SELECT mc, scenario, year, agegrp, sex%s, chd_dgns, all_cause_mrtl, stroke_dgns, t2dm_dgns, wt, wt_esp
+#             FROM %s
+#             WHERE mc = %d AND scenario = %s
+#             ),
+#             chd_costs AS (
+#               SELECT agegrp, sex,
+#                 COALESCE(cppc.cost_param, 0) AS chd_prvl_prdv,
+#                 COALESCE(cpmc.cost_param, 0) AS chd_mrtl_prdv,
+#                 COALESCE(cic.cost_param, 0) AS chd_informal,
+#                 COALESCE(cdc.cost_param, 0) AS chd_direct
+#               FROM chd_prvl_prdv_cost_param_view cppc
+#               LEFT JOIN chd_mrtl_prdv_cost_param_view cpmc USING(agegrp, sex)
+#               LEFT JOIN chd_informal_cost_param_view cic USING(agegrp, sex)
+#               LEFT JOIN chd_direct_cost_param_view cdc USING(agegrp, sex)
+#             ),
+#             stroke_costs AS (
+#               SELECT agegrp, sex,
+#                 COALESCE(sppc.cost_param, 0) AS stroke_prvl_prdv,
+#                 COALESCE(spmc.cost_param, 0) AS stroke_mrtl_prdv,
+#                 COALESCE(sic.cost_param, 0) AS stroke_informal,
+#                 COALESCE(sdc.cost_param, 0) AS stroke_direct
+#               FROM stroke_prvl_prdv_cost_param_view sppc
+#               LEFT JOIN stroke_mrtl_prdv_cost_param_view spmc USING(agegrp, sex)
+#               LEFT JOIN stroke_informal_cost_param_view sic USING(agegrp, sex)
+#               LEFT JOIN stroke_direct_cost_param_view sdc USING(agegrp, sex)
+#             ),
+#             basic_costs AS (
+#               SELECT
+#                 m.mc, m.scenario, m.year, m.agegrp, m.sex%s,
+#                 m.wt, m.wt_esp,
+# 
+#                 -- CHD basic cost components
+#                 CASE WHEN m.chd_dgns > 0 THEN cc.chd_prvl_prdv ELSE 0 END AS chd_prvl_prdv_costs,
+#                 CASE WHEN m.all_cause_mrtl = 2 THEN cc.chd_mrtl_prdv ELSE 0 END AS chd_mrtl_prdv_costs,
+#                 CASE WHEN m.chd_dgns > 0 THEN cc.chd_informal ELSE 0 END AS chd_informal_costs,
+#                 CASE WHEN m.chd_dgns > 0 THEN cc.chd_direct ELSE 0 END AS chd_direct_costs,
+# 
+#                 -- Stroke basic cost components
+#                 CASE WHEN m.stroke_dgns > 0 THEN sc.stroke_prvl_prdv ELSE 0 END AS stroke_prvl_prdv_costs,
+#                 CASE WHEN m.all_cause_mrtl = 3 THEN sc.stroke_mrtl_prdv ELSE 0 END AS stroke_mrtl_prdv_costs,
+#                 CASE WHEN m.stroke_dgns > 0 THEN sc.stroke_informal ELSE 0 END AS stroke_informal_costs,
+#                 CASE WHEN m.stroke_dgns > 0 THEN sc.stroke_direct ELSE 0 END AS stroke_direct_costs,
+# 
+#                 -- Flat per-case direct costs (USD), separate from the
+#                 -- age/sex-weighted direct cost calculation above
+#                 CASE WHEN m.t2dm_dgns > 0 THEN 579 ELSE 0 END AS t2dm_direct_cost,
+#                 CASE WHEN m.chd_dgns > 0 THEN 7338 ELSE 0 END AS chd_direct_cost,
+#                 CASE WHEN m.stroke_dgns > 0 THEN 1685 ELSE 0 END AS stroke_direct_cost
+# 
+#               FROM base_filtered m
+#               LEFT JOIN chd_costs cc ON m.agegrp = cc.agegrp AND m.sex = cc.sex
+#               LEFT JOIN stroke_costs sc ON m.agegrp = sc.agegrp AND m.sex = sc.sex
+#             )
+#             SELECT
+#               mc, scenario, year, agegrp, sex%s, wt, wt_esp,
+# 
+#               -- Basic cost components (already calculated)
+#               chd_prvl_prdv_costs,
+#               chd_mrtl_prdv_costs,
+#               chd_informal_costs,
+#               chd_direct_costs,
+#               stroke_prvl_prdv_costs,
+#               stroke_mrtl_prdv_costs,
+#               stroke_informal_costs,
+#               stroke_direct_costs,
+# 
+#               -- Flat per-case direct costs (USD)
+#               t2dm_direct_cost,
+#               chd_direct_cost,
+#               stroke_direct_cost,
+# 
+#               -- Aggregated productivity costs
+#               (chd_prvl_prdv_costs + chd_mrtl_prdv_costs) AS chd_productivity_costs,
+#               (stroke_prvl_prdv_costs + stroke_mrtl_prdv_costs) AS stroke_productivity_costs,
+#               (chd_prvl_prdv_costs + chd_mrtl_prdv_costs + stroke_prvl_prdv_costs + stroke_mrtl_prdv_costs) AS cvd_productivity_costs,
+# 
+#               -- Aggregated informal costs
+#               (chd_informal_costs + stroke_informal_costs) AS cvd_informal_costs,
+# 
+#               -- Aggregated direct costs (flat per-case direct costs replace
+#               -- the age/sex-weighted direct cost calculation here)
+#               (chd_direct_cost + stroke_direct_cost) AS cvd_direct_costs,
+# 
+#               -- Aggregated indirect costs (productivity + informal)
+#               (chd_prvl_prdv_costs + chd_mrtl_prdv_costs + chd_informal_costs) AS chd_indirect_costs,
+#               (stroke_prvl_prdv_costs + stroke_mrtl_prdv_costs + stroke_informal_costs) AS stroke_indirect_costs,
+#               (chd_prvl_prdv_costs + chd_mrtl_prdv_costs + chd_informal_costs + stroke_prvl_prdv_costs + stroke_mrtl_prdv_costs + stroke_informal_costs) AS cvd_indirect_costs,
+# 
+#               -- Total costs (indirect + direct; direct = flat per-case cost)
+#               (chd_prvl_prdv_costs + chd_mrtl_prdv_costs + chd_informal_costs + chd_direct_cost) AS chd_total_costs,
+#               (stroke_prvl_prdv_costs + stroke_mrtl_prdv_costs + stroke_informal_costs + stroke_direct_cost) AS stroke_total_costs,
+#               (chd_prvl_prdv_costs + chd_mrtl_prdv_costs + chd_informal_costs + chd_direct_cost + stroke_prvl_prdv_costs + stroke_mrtl_prdv_costs + stroke_informal_costs + stroke_direct_cost) AS cvd_total_costs
+# 
+#             FROM basic_costs;
+#         ",
+#           paste0(output_view_name, "_", scnams, "_view"),
+#           extra_strata_sql,
+#           input_table_name,
+#           mcaggr,
+#           paste0("'", scnams, "'"),
+#           extra_strata_m_sql,
+#           extra_strata_sql
+#         )
+
+        # Active version: keeps the ORIGINAL formula shape (total cost =
+        # productivity + informal + direct, per disease) so it's a one-line
+        # swap to restore once real Indonesia-sourced data exists. Each
+        # component that has no sourced data is hardcoded to 0 (commented
+        # inline with what it used to read from), so total_costs currently
+        # reduces to just the flat direct cost. #Updated on 20260812
         final_view_creation_sql <- sprintf(
           "
           CREATE OR REPLACE TEMP VIEW %s AS
           WITH base_filtered AS (
-            SELECT mc, scenario, year, agegrp, sex%s, chd_dgns, all_cause_mrtl, stroke_dgns, wt, wt_esp
+            SELECT mc, scenario, year, agegrp, sex%s, chd_dgns, all_cause_mrtl, stroke_dgns, t2dm_dgns, wt, wt_esp
             FROM %s
             WHERE mc = %d AND scenario = %s
-            ),
-            chd_costs AS (
-              SELECT agegrp, sex,
-                COALESCE(cppc.cost_param, 0) AS chd_prvl_prdv,
-                COALESCE(cpmc.cost_param, 0) AS chd_mrtl_prdv,
-                COALESCE(cic.cost_param, 0) AS chd_informal,
-                COALESCE(cdc.cost_param, 0) AS chd_direct
-              FROM chd_prvl_prdv_cost_param_view cppc
-              LEFT JOIN chd_mrtl_prdv_cost_param_view cpmc USING(agegrp, sex)
-              LEFT JOIN chd_informal_cost_param_view cic USING(agegrp, sex)
-              LEFT JOIN chd_direct_cost_param_view cdc USING(agegrp, sex)
-            ),
-            stroke_costs AS (
-              SELECT agegrp, sex,
-                COALESCE(sppc.cost_param, 0) AS stroke_prvl_prdv,
-                COALESCE(spmc.cost_param, 0) AS stroke_mrtl_prdv,
-                COALESCE(sic.cost_param, 0) AS stroke_informal,
-                COALESCE(sdc.cost_param, 0) AS stroke_direct
-              FROM stroke_prvl_prdv_cost_param_view sppc
-              LEFT JOIN stroke_mrtl_prdv_cost_param_view spmc USING(agegrp, sex)
-              LEFT JOIN stroke_informal_cost_param_view sic USING(agegrp, sex)
-              LEFT JOIN stroke_direct_cost_param_view sdc USING(agegrp, sex)
             ),
             basic_costs AS (
               SELECT
                 m.mc, m.scenario, m.year, m.agegrp, m.sex%s,
                 m.wt, m.wt_esp,
 
-                -- CHD basic cost components
-                CASE WHEN m.chd_dgns > 0 THEN cc.chd_prvl_prdv ELSE 0 END AS chd_prvl_prdv_costs,
-                CASE WHEN m.all_cause_mrtl = 2 THEN cc.chd_mrtl_prdv ELSE 0 END AS chd_mrtl_prdv_costs,
-                CASE WHEN m.chd_dgns > 0 THEN cc.chd_informal ELSE 0 END AS chd_informal_costs,
-                CASE WHEN m.chd_dgns > 0 THEN cc.chd_direct ELSE 0 END AS chd_direct_costs,
+                -- CHD basic cost components: no sourced Indonesia data for
+                -- productivity/informal/complex-direct cost yet, so these
+                -- are 0 (was cc.chd_prvl_prdv / cc.chd_mrtl_prdv / cc.chd_informal)
+                CASE WHEN m.chd_dgns > 0 THEN 0 ELSE 0 END AS chd_prvl_prdv_costs,
+                CASE WHEN m.all_cause_mrtl = 2 THEN 0 ELSE 0 END AS chd_mrtl_prdv_costs,
+                CASE WHEN m.chd_dgns > 0 THEN 0 ELSE 0 END AS chd_informal_costs,
 
-                -- Stroke basic cost components
-                CASE WHEN m.stroke_dgns > 0 THEN sc.stroke_prvl_prdv ELSE 0 END AS stroke_prvl_prdv_costs,
-                CASE WHEN m.all_cause_mrtl = 3 THEN sc.stroke_mrtl_prdv ELSE 0 END AS stroke_mrtl_prdv_costs,
-                CASE WHEN m.stroke_dgns > 0 THEN sc.stroke_informal ELSE 0 END AS stroke_informal_costs,
-                CASE WHEN m.stroke_dgns > 0 THEN sc.stroke_direct ELSE 0 END AS stroke_direct_costs
+                -- Stroke basic cost components (was sc.stroke_prvl_prdv /
+                -- sc.stroke_mrtl_prdv / sc.stroke_informal)
+                CASE WHEN m.stroke_dgns > 0 THEN 0 ELSE 0 END AS stroke_prvl_prdv_costs,
+                CASE WHEN m.all_cause_mrtl = 3 THEN 0 ELSE 0 END AS stroke_mrtl_prdv_costs,
+                CASE WHEN m.stroke_dgns > 0 THEN 0 ELSE 0 END AS stroke_informal_costs,
+
+                -- Flat per-case direct costs (USD) - the only sourced cost
+                -- data currently available. All three keep the original
+                -- plural _direct_costs naming (values are now the flat
+                -- numbers, not the old age/sex-weighted calc for chd/stroke).
+                -- Updated on 20260812
+                CASE WHEN m.t2dm_dgns > 0 THEN 579 ELSE 0 END AS t2dm_direct_costs,
+                CASE WHEN m.chd_dgns > 0 THEN 7338 ELSE 0 END AS chd_direct_costs,
+                CASE WHEN m.stroke_dgns > 0 THEN 1685 ELSE 0 END AS stroke_direct_costs
 
               FROM base_filtered m
-              LEFT JOIN chd_costs cc ON m.agegrp = cc.agegrp AND m.sex = cc.sex
-              LEFT JOIN stroke_costs sc ON m.agegrp = sc.agegrp AND m.sex = sc.sex
             )
             SELECT
               mc, scenario, year, agegrp, sex%s, wt, wt_esp,
@@ -4646,10 +4774,13 @@ Simulation <-
               chd_prvl_prdv_costs,
               chd_mrtl_prdv_costs,
               chd_informal_costs,
-              chd_direct_costs,
               stroke_prvl_prdv_costs,
               stroke_mrtl_prdv_costs,
               stroke_informal_costs,
+
+              -- Flat per-case direct costs (USD)
+              t2dm_direct_costs,
+              chd_direct_costs,
               stroke_direct_costs,
 
               -- Aggregated productivity costs
@@ -4660,7 +4791,8 @@ Simulation <-
               -- Aggregated informal costs
               (chd_informal_costs + stroke_informal_costs) AS cvd_informal_costs,
 
-              -- Aggregated direct costs
+              -- Aggregated direct costs (flat per-case direct costs - the
+              -- only sourced direct cost data currently available)
               (chd_direct_costs + stroke_direct_costs) AS cvd_direct_costs,
 
               -- Aggregated indirect costs (productivity + informal)
@@ -4668,7 +4800,9 @@ Simulation <-
               (stroke_prvl_prdv_costs + stroke_mrtl_prdv_costs + stroke_informal_costs) AS stroke_indirect_costs,
               (chd_prvl_prdv_costs + chd_mrtl_prdv_costs + chd_informal_costs + stroke_prvl_prdv_costs + stroke_mrtl_prdv_costs + stroke_informal_costs) AS cvd_indirect_costs,
 
-              -- Total costs (indirect + direct)
+              -- Total costs: SAME formula as before (productivity + informal
+              -- + direct); productivity/informal are currently 0, so total
+              -- reduces to the flat direct cost -- Updated on 20260812
               (chd_prvl_prdv_costs + chd_mrtl_prdv_costs + chd_informal_costs + chd_direct_costs) AS chd_total_costs,
               (stroke_prvl_prdv_costs + stroke_mrtl_prdv_costs + stroke_informal_costs + stroke_direct_costs) AS stroke_total_costs,
               (chd_prvl_prdv_costs + chd_mrtl_prdv_costs + chd_informal_costs + chd_direct_costs + stroke_prvl_prdv_costs + stroke_mrtl_prdv_costs + stroke_informal_costs + stroke_direct_costs) AS cvd_total_costs
@@ -6017,6 +6151,8 @@ Simulation <-
           'SUM(chd_total_costs * wt_esp) AS chd_total_costs',
           'SUM(stroke_total_costs * wt_esp) AS stroke_total_costs',
           'SUM(cvd_total_costs * wt_esp) AS cvd_total_costs',
+          #Updated on 20260812
+          'SUM(t2dm_direct_costs * wt_esp) AS t2dm_direct_costs',
           sep = ", "
         )
 

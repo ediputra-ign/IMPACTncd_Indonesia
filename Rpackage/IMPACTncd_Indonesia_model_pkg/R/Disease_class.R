@@ -1938,11 +1938,16 @@ Disease <-
               mu_upper = mu_upper / 1e5
             )]
           }
+          p_ <- if (grepl("_ftlt.fst$", private$filenams[[i]])) { #Updated on 20260811
+            c(0.5, 0.95, 0.05)
+          } else {
+            c(0.5, 0.975, 0.025)
+          }
           if (!"shape1" %in% names(tbl)) {
             tbl[,
               c("shape1", "shape2") := private$fit_beta_vec(
                 q = list(mu, mu_upper, mu_lower),
-                p = c(0.5, 0.975, 0.025),
+                p = p_, #Updated on 20260811
                 tolerance = 0.01,
                 verbose = verbose
               )
@@ -1952,7 +1957,7 @@ Disease <-
               is.na(shape1) | is.na(shape2),
               c("shape1", "shape2") := private$fit_beta_vec(
                 q = list(mu, mu_upper, mu_lower),
-                p = c(0.5, 0.975, 0.025),
+                p = p_, #Updated on 20260811
                 tolerance = 0.01,
                 verbose = verbose
               )

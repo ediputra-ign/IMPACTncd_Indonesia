@@ -85,6 +85,9 @@ Exposure <-
           if ("PA_days" %in% names(dtRelativeRiskByPopulationSubset))
             dtRelativeRiskByPopulationSubset[, PA_days :=
                      factor(PA_days, levels = 0:7, labels = 0:7, ordered = TRUE)]
+          if ("ses" %in% names(dtRelativeRiskByPopulationSubset)) #Updated on 20260812
+            dtRelativeRiskByPopulationSubset[, ses :=
+                     factor(ses, levels = 1:3, labels = 1:3, ordered = TRUE)]
 
 
 
@@ -439,7 +442,14 @@ Exposure <-
 
           if (self$name %in% names(sp_$pop)) { #TODO: check that self$name is correct rather than paste0(self$name, "_prvl")
             # To prevent overwriting t2dm_prvl, af_prvl etc.
-            sp_$pop[get(self$name) > 0, (xps_tolag) := 1L] # xps_tolag always present because of code 6 lines above
+            if (is.factor(sp_$pop[[self$name]])) { #Updated on 20260812
+              # multi-level factor exposures (e.g. ses) are not a 0/1
+              # presence flag like t2dm_prvl/af_prvl, so carry the actual
+              # level through to be lagged and joined against the RR table
+              set(sp_$pop, NULL, xps_tolag, sp_$pop[[self$name]])
+            } else {
+              sp_$pop[get(self$name) > 0, (xps_tolag) := 1L] # xps_tolag always present because of code 6 lines above
+            }
 
             setnames(sp_$pop, self$name, paste0(self$name, "____"))
           } # if not (like with t2dm) xps_tolag remains 0 for now. TODO is this desired?

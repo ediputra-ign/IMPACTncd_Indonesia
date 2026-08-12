@@ -50,3 +50,10 @@ docker_setup/README.html
 auxil/memlog.txt
 auxil/memlog.png
 auxil/cpp_testing/test_data/tmp_spfor_test.qs
+# Personal/internal notes and superseded code, not for publishing
+/Notes_of_changes
+/old_before_Chris_edit_IMPACTncd_Indonesia_model_pkg
+/old_Disease_class.R
+/old_SynthPop_class.R
+/process_out_Chris.R
+/Notes from Claude.txt

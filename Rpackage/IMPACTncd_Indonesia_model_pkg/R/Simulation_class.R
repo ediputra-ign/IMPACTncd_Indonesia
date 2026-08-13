@@ -4024,7 +4024,7 @@ Simulation <-
       # Even with lc[, lapply(.SD, fclamp_int, inplace = TRUE), .SDcols = patterns("_prvl")] this is slow,
       # and destrucive to the original data
 
-      # Calculates QALYs (EQ5D5L and HUI3) and creates a new temporary view in DuckDB
+      # Calculates QALYs (EQ5D5L) and creates a new temporary view in DuckDB
       # with these additional columns.
       #
       # Args:
@@ -4101,37 +4101,37 @@ Simulation <-
             " + CASE WHEN BMI >= 30 THEN -0.06 WHEN BMI >= 25 THEN -0.02 ELSE 0.0 END" else ""
         )
 
-        hui3_expr <- paste0("
-          0.897
-          + CASE agegrp
-              WHEN '20-24' THEN -0.023 WHEN '25-29' THEN -0.023
-              WHEN '30-34' THEN -0.018 WHEN '35-39' THEN -0.018
-              WHEN '40-44' THEN -0.004 WHEN '45-49' THEN -0.004
-              WHEN '50-54' THEN -0.021 WHEN '55-59' THEN -0.021
-              WHEN '60-64' THEN -0.013 WHEN '65-69' THEN -0.013
-              WHEN '70-74' THEN -0.042 WHEN '75-79' THEN -0.042
-              WHEN '80-84' THEN -0.145 WHEN '85-89' THEN -0.145
-              WHEN '90-94' THEN -0.145 WHEN '95-99' THEN -0.145
-              ELSE 0.0
-            END
-          + CASE WHEN sex = 'women' THEN 0.011 ELSE 0.0 END",
-          make_dis_sql(sig_terms, "hui3"),
-          if (!include_non_significant) make_dis_sql(nonsig_terms, "hui3") else ""
-        )
+        # HUI3 commented out #Updated on 20260812: not relevant, no longer
+        # computed or exported.
+        # hui3_expr <- paste0("
+        #   0.897
+        #   + CASE agegrp
+        #       WHEN '20-24' THEN -0.023 WHEN '25-29' THEN -0.023
+        #       WHEN '30-34' THEN -0.018 WHEN '35-39' THEN -0.018
+        #       WHEN '40-44' THEN -0.004 WHEN '45-49' THEN -0.004
+        #       WHEN '50-54' THEN -0.021 WHEN '55-59' THEN -0.021
+        #       WHEN '60-64' THEN -0.013 WHEN '65-69' THEN -0.013
+        #       WHEN '70-74' THEN -0.042 WHEN '75-79' THEN -0.042
+        #       WHEN '80-84' THEN -0.145 WHEN '85-89' THEN -0.145
+        #       WHEN '90-94' THEN -0.145 WHEN '95-99' THEN -0.145
+        #       ELSE 0.0
+        #     END
+        #   + CASE WHEN sex = 'women' THEN 0.011 ELSE 0.0 END",
+        #   make_dis_sql(sig_terms, "hui3"),
+        #   if (!include_non_significant) make_dis_sql(nonsig_terms, "hui3") else ""
+        # )
 
         create_view_sql <- sprintf(
           "
           CREATE OR REPLACE TEMP VIEW %s AS
           SELECT
             *,
-            (%s) AS EQ5D5L,
-            (%s) AS HUI3
+            (%s) AS EQ5D5L
           FROM %s
           WHERE mc = %d;
         ",
           output_view_name,
           eq5d5l_expr,
-          hui3_expr,
           input_table_name,
           mcaggr
         )
@@ -4805,7 +4805,17 @@ Simulation <-
               -- reduces to the flat direct cost -- Updated on 20260812
               (chd_prvl_prdv_costs + chd_mrtl_prdv_costs + chd_informal_costs + chd_direct_costs) AS chd_total_costs,
               (stroke_prvl_prdv_costs + stroke_mrtl_prdv_costs + stroke_informal_costs + stroke_direct_costs) AS stroke_total_costs,
-              (chd_prvl_prdv_costs + chd_mrtl_prdv_costs + chd_informal_costs + chd_direct_costs + stroke_prvl_prdv_costs + stroke_mrtl_prdv_costs + stroke_informal_costs + stroke_direct_costs) AS cvd_total_costs
+              (chd_prvl_prdv_costs + chd_mrtl_prdv_costs + chd_informal_costs + chd_direct_costs + stroke_prvl_prdv_costs + stroke_mrtl_prdv_costs + stroke_informal_costs + stroke_direct_costs) AS cvd_total_costs,
+
+              -- Health cost: total DIRECT costs across ALL diseases
+              -- (t2dm + chd + stroke) - Updated on 20260812
+              (t2dm_direct_costs + chd_direct_costs + stroke_direct_costs) AS health_costs,
+
+              -- Social cost: total costs (productivity + informal + direct)
+              -- across ALL diseases (t2dm + chd + stroke); t2dm has no
+              -- productivity/informal component so its contribution is just
+              -- t2dm_direct_costs - Updated on 20260812
+              (t2dm_direct_costs + chd_prvl_prdv_costs + chd_mrtl_prdv_costs + chd_informal_costs + chd_direct_costs + stroke_prvl_prdv_costs + stroke_mrtl_prdv_costs + stroke_informal_costs + stroke_direct_costs) AS social_costs
 
             FROM basic_costs;
         ",
@@ -6003,7 +6013,7 @@ Simulation <-
         # Define the name for the temporary view that calc_QALYs will create
         qaly_view_name <- "lc_with_qalys_view"
 
-        # Call calc_QALYs to create/replace the temporary view with EQ5D5L and HUI3 columns.
+        # Call calc_QALYs to create/replace the temporary view with the EQ5D5L column.
         # This view will be based on lc_table and filtered for the current mcaggr.
         private$calc_QALYs(
           duckdb_con = duckdb_con,
@@ -6021,8 +6031,11 @@ Simulation <-
         )
 
         # Define QALY metrics for SELECT statement
-        qaly_metrics_select_wt <- 'SUM("EQ5D5L" * wt) AS "EQ5D5L", SUM("HUI3" * wt) AS "HUI3"'
-        qaly_metrics_select_wt_esp <- 'SUM("EQ5D5L" * wt_esp) AS "EQ5D5L", SUM("HUI3" * wt_esp) AS "HUI3"'
+        # HUI3 commented out #Updated on 20260812: not relevant.
+        # qaly_metrics_select_wt <- 'SUM("EQ5D5L" * wt) AS "EQ5D5L", SUM("HUI3" * wt) AS "HUI3"'
+        # qaly_metrics_select_wt_esp <- 'SUM("EQ5D5L" * wt_esp) AS "EQ5D5L", SUM("HUI3" * wt_esp) AS "HUI3"'
+        qaly_metrics_select_wt <- 'SUM("EQ5D5L" * wt) AS "EQ5D5L"'
+        qaly_metrics_select_wt_esp <- 'SUM("EQ5D5L" * wt_esp) AS "EQ5D5L"'
 
         # --- Scaled-up QALYs ---
         query_scaled_up <- sprintf(
@@ -6153,6 +6166,9 @@ Simulation <-
           'SUM(cvd_total_costs * wt_esp) AS cvd_total_costs',
           #Updated on 20260812
           'SUM(t2dm_direct_costs * wt_esp) AS t2dm_direct_costs',
+          #Updated on 20260812
+          'SUM(health_costs * wt_esp) AS health_costs',
+          'SUM(social_costs * wt_esp) AS social_costs',
           sep = ", "
         )
 

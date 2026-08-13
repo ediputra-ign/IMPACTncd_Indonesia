@@ -19,8 +19,10 @@ init_year_incd_calibration: no # Indicates whether parf*p0 is calibrated to incd
 incd_uncertainty_distr: beta #  The distribution of incidence uncertainty. Either beta or uniform.
 prvl_uncertainty_distr: beta #  The distribution of prevalence uncertainty. Either beta or uniform.
 ftlt_uncertainty_distr: beta #  The distribution of case fatality uncertainty. Either beta or uniform.
-output_dir: ~/IMPACTncd_Indo/outputs # ./outputs
-synthpop_dir: ~/IMPACTncd_Indo/synthpop # ./inputs/synthpop
+output_dir: /mnt/storage_fast/ediputra/SSB_Indo/outputs # ./outputs
+synthpop_dir: /mnt/storage_fast/ediputra/SSB_Indo/synthpop # ./inputs/synthpop
+discount_rate: 0.035 # Annual discount rate applied to costs from policy_year + 1 onwards #Updated on 20260812
+policy_year: 2026 # Year the policy is implemented; this year itself is undiscounted, discounting starts the following year #Updated on 20260812
 
 diseases:
 - name: obesity
@@ -150,6 +152,7 @@ cols_for_output:
 - wt_esp
 - ses #edited 20260205
 - reg
+- BMI #Updated on 20260812
 strata_for_output:
 - scenario
 - year

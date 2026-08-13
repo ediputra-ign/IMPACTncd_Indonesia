@@ -1,10 +1,10 @@
-## IMPACTncd_Indo is an implementation of the IMPACTncd framework, developed by
+## IMPACTncd_Indonesia is an implementation of the IMPACTncd framework, developed by
 ## Chris Kypridemos with contributions from Peter Crowther (Melandra Ltd), Maria
 ## Guzman-Castillo, Amandine Robert, and Piotr Bandosz.
 ##
 ## Copyright (C) 2018-2020 University of Liverpool, Chris Kypridemos
 ##
-## IMPACTncd_Indo is free software; you can redistribute it and/or modify it
+## IMPACTncd_Indonesia is free software; you can redistribute it and/or modify it
 ## under the terms of the GNU General Public License as published by the Free
 ## Software Foundation; either version 3 of the License, or (at your option) any
 ## later version. This program is distributed in the hope that it will be
